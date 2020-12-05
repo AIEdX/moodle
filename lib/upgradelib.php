@@ -456,6 +456,18 @@ function upgrade_stale_php_files_present() {
     global $CFG;
 
     $someexamplesofremovedfiles = array(
+        // Removed in 3.10.
+        '/grade/grading/classes/privacy/gradingform_provider.php',
+        '/lib/coursecatlib.php',
+        '/lib/form/htmleditor.php',
+        '/message/classes/output/messagearea/contact.php',
+        // Removed in 3.9.
+        '/course/classes/output/modchooser_item.php',
+        '/course/yui/build/moodle-course-modchooser/moodle-course-modchooser-min.js',
+        '/course/yui/src/modchooser/js/modchooser.js',
+        '/h5p/classes/autoloader.php',
+        '/lib/adodb/readme.txt',
+        '/lib/maxmind/GeoIp2/Compat/JsonSerializable.php',
         // Removed in 3.8.
         '/lib/amd/src/modal_confirm.js',
         '/lib/fonts/font-awesome-4.7.0/css/font-awesome.css',
@@ -2432,6 +2444,7 @@ function check_upgrade_key($upgradekeyhash) {
     if (isset($CFG->config_php_settings['upgradekey'])) {
         if ($upgradekeyhash === null or $upgradekeyhash !== sha1($CFG->config_php_settings['upgradekey'])) {
             if (!$PAGE->headerprinted) {
+                $PAGE->set_title(get_string('upgradekeyreq', 'admin'));
                 $output = $PAGE->get_renderer('core', 'admin');
                 echo $output->upgradekey_form_page(new moodle_url('/admin/index.php', array('cache' => 0)));
                 die();

@@ -40,9 +40,11 @@ class manager {
      * Given a component name, will load the list of tasks in the db/tasks.php file for that component.
      *
      * @param string $componentname - The name of the component to fetch the tasks for.
+     * @param bool $expandr - if true (default) an 'R' value in a time is expanded to an appropriate int.
+     *      If false, they are left as 'R'
      * @return \core\task\scheduled_task[] - List of scheduled tasks for this component.
      */
-    public static function load_default_scheduled_tasks_for_component($componentname) {
+    public static function load_default_scheduled_tasks_for_component($componentname, $expandr = true) {
         $dir = \core_component::get_component_directory($componentname);
 
         if (!$dir) {
@@ -65,7 +67,7 @@ class manager {
 
         foreach ($tasks as $task) {
             $record = (object) $task;
-            $scheduledtask = self::scheduled_task_from_record($record);
+            $scheduledtask = self::scheduled_task_from_record($record, $expandr, false);
             // Safety check in case the task in the DB does not match a real class (maybe something was uninstalled).
             if ($scheduledtask) {
                 $scheduledtask->set_component($componentname);
@@ -253,6 +255,9 @@ class manager {
         $record->dayofweek = $task->get_day_of_week();
         $record->month = $task->get_month();
         $record->disabled = $task->get_disabled();
+        $record->timestarted = $task->get_timestarted();
+        $record->hostname = $task->get_hostname();
+        $record->pid = $task->get_pid();
 
         return $record;
     }
@@ -273,6 +278,10 @@ class manager {
         $record->faildelay = $task->get_fail_delay();
         $record->customdata = $task->get_custom_data_as_string();
         $record->userid = $task->get_userid();
+        $record->timecreated = time();
+        $record->timestarted = $task->get_timestarted();
+        $record->hostname = $task->get_hostname();
+        $record->pid = $task->get_pid();
 
         return $record;
     }
@@ -310,6 +319,15 @@ class manager {
         if (isset($record->userid)) {
             $task->set_userid($record->userid);
         }
+        if (isset($record->timestarted)) {
+            $task->set_timestarted($record->timestarted);
+        }
+        if (isset($record->hostname)) {
+            $task->set_hostname($record->hostname);
+        }
+        if (isset($record->pid)) {
+            $task->set_pid($record->pid);
+        }
 
         return $task;
     }
@@ -318,9 +336,12 @@ class manager {
      * Utility method to create a task from a DB record.
      *
      * @param \stdClass $record
-     * @return \core\task\scheduled_task
+     * @param bool $expandr - if true (default) an 'R' value in a time is expanded to an appropriate int.
+     *      If false, they are left as 'R'
+     * @param bool $override - if true loads overridden settings from config.
+     * @return \core\task\scheduled_task|false
      */
-    public static function scheduled_task_from_record($record) {
+    public static function scheduled_task_from_record($record, $expandr = true, $override = true) {
         $classname = self::get_canonical_class_name($record->classname);
         if (!class_exists($classname)) {
             debugging("Failed to load task: " . $classname, DEBUG_DEVELOPER);
@@ -328,6 +349,12 @@ class manager {
         }
         /** @var \core\task\scheduled_task $task */
         $task = new $classname;
+
+        if ($override) {
+            // Update values with those defined in the config, if any are set.
+            $record = self::get_record_with_config_overrides($record);
+        }
+
         if (isset($record->lastruntime)) {
             $task->set_last_run_time($record->lastruntime);
         }
@@ -342,10 +369,10 @@ class manager {
         }
         $task->set_blocking(!empty($record->blocking));
         if (isset($record->minute)) {
-            $task->set_minute($record->minute);
+            $task->set_minute($record->minute, $expandr);
         }
         if (isset($record->hour)) {
-            $task->set_hour($record->hour);
+            $task->set_hour($record->hour, $expandr);
         }
         if (isset($record->day)) {
             $task->set_day($record->day);
@@ -354,7 +381,7 @@ class manager {
             $task->set_month($record->month);
         }
         if (isset($record->dayofweek)) {
-            $task->set_day_of_week($record->dayofweek);
+            $task->set_day_of_week($record->dayofweek, $expandr);
         }
         if (isset($record->faildelay)) {
             $task->set_fail_delay($record->faildelay);
@@ -362,6 +389,16 @@ class manager {
         if (isset($record->disabled)) {
             $task->set_disabled($record->disabled);
         }
+        if (isset($record->timestarted)) {
+            $task->set_timestarted($record->timestarted);
+        }
+        if (isset($record->hostname)) {
+            $task->set_hostname($record->hostname);
+        }
+        if (isset($record->pid)) {
+            $task->set_pid($record->pid);
+        }
+        $task->set_overridden(self::scheduled_task_has_override($classname));
 
         return $task;
     }
@@ -429,15 +466,18 @@ class manager {
      * This function load the default scheduled task details for a given classname.
      *
      * @param string $classname
-     * @return \core\task\scheduled_task or false
+     * @param bool $expandr - if true (default) an 'R' value in a time is expanded to an appropriate int.
+     *      If false, they are left as 'R'
+     * @return \core\task\scheduled_task|false
      */
-    public static function get_default_scheduled_task($classname) {
+    public static function get_default_scheduled_task($classname, $expandr = true) {
         $task = self::get_scheduled_task($classname);
         $componenttasks = array();
 
         // Safety check in case no task was found for the given classname.
         if ($task) {
-            $componenttasks = self::load_default_scheduled_tasks_for_component($task->get_component());
+            $componenttasks = self::load_default_scheduled_tasks_for_component(
+                    $task->get_component(), $expandr);
         }
 
         foreach ($componenttasks as $componenttask) {
@@ -561,8 +601,7 @@ class manager {
 
         $where = '(nextruntime IS NULL OR nextruntime < :timestart1)';
         $params = array('timestart1' => $timestart);
-        $records = $DB->get_records_select('task_adhoc', $where, $params);
-
+        $records = $DB->get_records_select('task_adhoc', $where, $params, 'nextruntime ASC, id ASC', '*', 0, 2000);
         $records = self::ensure_adhoc_task_qos($records);
 
         $cronlockfactory = \core\lock\lock_config::get_lock_factory('cron');
@@ -670,10 +709,12 @@ class manager {
                     }
                 }
 
-                // Make sure the task data is unchanged.
-                if (!$DB->record_exists('task_scheduled', (array) $record)) {
-                    $lock->release();
-                    continue;
+                if (!self::scheduled_task_has_override($record->classname)) {
+                    // Make sure the task data is unchanged unless an override is being used.
+                    if (!$DB->record_exists('task_scheduled', (array)$record)) {
+                        $lock->release();
+                        continue;
+                    }
                 }
 
                 // The global cron lock is under the most contention so request it
@@ -702,6 +743,9 @@ class manager {
      */
     public static function adhoc_task_failed(adhoc_task $task) {
         global $DB;
+        // Finalise the log output.
+        logmanager::finalise_log(true);
+
         $delay = $task->get_fail_delay();
 
         // Reschedule task with exponential fall off for failing tasks.
@@ -717,6 +761,9 @@ class manager {
         }
 
         // Reschedule and then release the locks.
+        $task->set_timestarted();
+        $task->set_hostname();
+        $task->set_pid();
         $task->set_next_run_time(time() + $delay);
         $task->set_fail_delay($delay);
         $record = self::record_from_adhoc_task($task);
@@ -727,9 +774,31 @@ class manager {
             $task->get_cron_lock()->release();
         }
         $task->get_lock()->release();
+    }
 
-        // Finalise the log output.
-        logmanager::finalise_log(true);
+    /**
+     * Records that a adhoc task is starting to run.
+     *
+     * @param adhoc_task $task Task that is starting
+     * @param int $time Start time (leave blank for now)
+     * @throws \dml_exception
+     * @throws \coding_exception
+     */
+    public static function adhoc_task_starting(adhoc_task $task, int $time = 0) {
+        global $DB;
+        $pid = (int)getmypid();
+        $hostname = (string)gethostname();
+
+        if (empty($time)) {
+            $time = time();
+        }
+
+        $task->set_timestarted($time);
+        $task->set_hostname($hostname);
+        $task->set_pid($pid);
+
+        $record = self::record_from_adhoc_task($task);
+        $DB->update_record('task_adhoc', $record);
     }
 
     /**
@@ -742,6 +811,9 @@ class manager {
 
         // Finalise the log output.
         logmanager::finalise_log();
+        $task->set_timestarted();
+        $task->set_hostname();
+        $task->set_pid();
 
         // Delete the adhoc task record - it is finished.
         $DB->delete_records('task_adhoc', array('id' => $task->get_id()));
@@ -761,6 +833,8 @@ class manager {
      */
     public static function scheduled_task_failed(scheduled_task $task) {
         global $DB;
+        // Finalise the log output.
+        logmanager::finalise_log(true);
 
         $delay = $task->get_fail_delay();
 
@@ -776,20 +850,24 @@ class manager {
             $delay = 86400;
         }
 
+        $task->set_timestarted();
+        $task->set_hostname();
+        $task->set_pid();
+
         $classname = self::get_canonical_class_name($task);
 
         $record = $DB->get_record('task_scheduled', array('classname' => $classname));
         $record->nextruntime = time() + $delay;
         $record->faildelay = $delay;
+        $record->timestarted = null;
+        $record->hostname = null;
+        $record->pid = null;
         $DB->update_record('task_scheduled', $record);
 
         if ($task->is_blocking()) {
             $task->get_cron_lock()->release();
         }
         $task->get_lock()->release();
-
-        // Finalise the log output.
-        logmanager::finalise_log(true);
     }
 
     /**
@@ -810,6 +888,34 @@ class manager {
     }
 
     /**
+     * Records that a scheduled task is starting to run.
+     *
+     * @param scheduled_task $task Task that is starting
+     * @param int $time Start time (0 = current)
+     * @throws \dml_exception If the task doesn't exist
+     */
+    public static function scheduled_task_starting(scheduled_task $task, int $time = 0) {
+        global $DB;
+        $pid = (int)getmypid();
+        $hostname = (string)gethostname();
+
+        if (!$time) {
+            $time = time();
+        }
+
+        $task->set_timestarted($time);
+        $task->set_hostname($hostname);
+        $task->set_pid($pid);
+
+        $classname = self::get_canonical_class_name($task);
+        $record = $DB->get_record('task_scheduled', ['classname' => $classname], '*', MUST_EXIST);
+        $record->timestarted = $time;
+        $record->hostname = $hostname;
+        $record->pid = $pid;
+        $DB->update_record('task_scheduled', $record);
+    }
+
+    /**
      * This function indicates that a scheduled task was completed successfully and should be rescheduled.
      *
      * @param \core\task\scheduled_task $task
@@ -819,6 +925,9 @@ class manager {
 
         // Finalise the log output.
         logmanager::finalise_log();
+        $task->set_timestarted();
+        $task->set_hostname();
+        $task->set_pid();
 
         $classname = self::get_canonical_class_name($task);
         $record = $DB->get_record('task_scheduled', array('classname' => $classname));
@@ -826,6 +935,9 @@ class manager {
             $record->lastruntime = time();
             $record->faildelay = 0;
             $record->nextruntime = $task->get_next_scheduled_time();
+            $record->timestarted = null;
+            $record->hostname = null;
+            $record->pid = null;
 
             $DB->update_record('task_scheduled', $record);
         }
@@ -835,6 +947,47 @@ class manager {
             $task->get_cron_lock()->release();
         }
         $task->get_lock()->release();
+    }
+
+    /**
+     * Gets a list of currently-running tasks.
+     *
+     * @param  string $sort Sorting method
+     * @return array Array of scheduled and adhoc tasks
+     * @throws \dml_exception
+     */
+    public static function get_running_tasks($sort = ''): array {
+        global $DB;
+        if (empty($sort)) {
+            $sort = 'timestarted ASC, classname ASC';
+        }
+        $params = ['now1' => time(), 'now2' => time()];
+
+        $sql = "SELECT subquery.*
+                  FROM (SELECT concat('s', ts.id) as uniqueid,
+                               ts.id,
+                               'scheduled' as type,
+                               ts.classname,
+                               (:now1 - ts.timestarted) as time,
+                               ts.timestarted,
+                               ts.hostname,
+                               ts.pid
+                          FROM {task_scheduled} ts
+                         WHERE ts.timestarted IS NOT NULL
+                         UNION ALL
+                        SELECT concat('a', ta.id) as uniqueid,
+                               ta.id,
+                               'adhoc' as type,
+                               ta.classname,
+                               (:now2 - ta.timestarted) as time,
+                               ta.timestarted,
+                               ta.hostname,
+                               ta.pid
+                          FROM {task_adhoc} ta
+                         WHERE ta.timestarted IS NOT NULL) subquery
+              ORDER BY " . $sort;
+
+        return $DB->get_records_sql($sql, $params);
     }
 
     /**
@@ -899,6 +1052,152 @@ class manager {
         for ($run = 0; $run < $task->get_concurrency_limit(); $run++) {
             if ($adhoclock = $cronlockfactory->get_lock("concurrent_run_{$run}", 0)) {
                 return $adhoclock;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Find the path of PHP CLI binary.
+     *
+     * @return string|false The PHP CLI executable PATH
+     */
+    protected static function find_php_cli_path() {
+        global $CFG;
+
+        if (!empty($CFG->pathtophp) && is_executable(trim($CFG->pathtophp))) {
+            return $CFG->pathtophp;
+        }
+
+        return false;
+    }
+
+    /**
+     * Returns if Moodle have access to PHP CLI binary or not.
+     *
+     * @return bool
+     */
+    public static function is_runnable():bool {
+        return self::find_php_cli_path() !== false;
+    }
+
+    /**
+     * Executes a cron from web invocation using PHP CLI.
+     *
+     * @param \core\task\task_base $task Task that be executed via CLI.
+     * @return bool
+     * @throws \moodle_exception
+     */
+    public static function run_from_cli(\core\task\task_base $task):bool {
+        global $CFG;
+
+        if (!self::is_runnable()) {
+            $redirecturl = new \moodle_url('/admin/settings.php', ['section' => 'systempaths']);
+            throw new \moodle_exception('cannotfindthepathtothecli', 'core_task', $redirecturl->out());
+        } else {
+            // Shell-escaped path to the PHP binary.
+            $phpbinary = escapeshellarg(self::find_php_cli_path());
+
+            // Shell-escaped path CLI script.
+            $pathcomponents = [$CFG->dirroot, $CFG->admin, 'cli', 'scheduled_task.php'];
+            $scriptpath     = escapeshellarg(implode(DIRECTORY_SEPARATOR, $pathcomponents));
+
+            // Shell-escaped task name.
+            $classname = get_class($task);
+            $taskarg   = escapeshellarg("--execute={$classname}") . " " . escapeshellarg("--force");
+
+            // Build the CLI command.
+            $command = "{$phpbinary} {$scriptpath} {$taskarg}";
+
+            // Execute it.
+            passthru($command);
+        }
+
+        return true;
+    }
+
+    /**
+     * For a given scheduled task record, this method will check to see if any overrides have
+     * been applied in config and return a copy of the record with any overridden values.
+     *
+     * The format of the config value is:
+     *      $CFG->scheduled_tasks = array(
+     *          '$classname' => array(
+     *              'schedule' => '* * * * *',
+     *              'disabled' => 1,
+     *          ),
+     *      );
+     *
+     * Where $classname is the value of the task's classname, i.e. '\core\task\grade_cron_task'.
+     *
+     * @param \stdClass $record scheduled task record
+     * @return \stdClass scheduled task with any configured overrides
+     */
+    protected static function get_record_with_config_overrides(\stdClass $record): \stdClass {
+        global $CFG;
+
+        $scheduledtaskkey = self::scheduled_task_get_override_key($record->classname);
+        $overriddenrecord = $record;
+
+        if ($scheduledtaskkey) {
+            $overriddenrecord->customised = true;
+            $taskconfig = $CFG->scheduled_tasks[$scheduledtaskkey];
+
+            if (isset($taskconfig['disabled'])) {
+                $overriddenrecord->disabled = $taskconfig['disabled'];
+            }
+            if (isset($taskconfig['schedule'])) {
+                list (
+                    $overriddenrecord->minute,
+                    $overriddenrecord->hour,
+                    $overriddenrecord->day,
+                    $overriddenrecord->dayofweek,
+                    $overriddenrecord->month) = explode(' ', $taskconfig['schedule']);
+            }
+        }
+
+        return $overriddenrecord;
+    }
+
+    /**
+     * This checks whether or not there is a value set in config
+     * for a scheduled task.
+     *
+     * @param string $classname Scheduled task's classname
+     * @return bool true if there is an entry in config
+     */
+    public static function scheduled_task_has_override(string $classname): bool {
+        return self::scheduled_task_get_override_key($classname) !== null;
+    }
+
+    /**
+     * Get the key within the scheduled tasks config object that
+     * for a classname.
+     *
+     * @param string $classname the scheduled task classname to find
+     * @return string the key if found, otherwise null
+     */
+    public static function scheduled_task_get_override_key(string $classname): ?string {
+        global $CFG;
+
+        if (isset($CFG->scheduled_tasks)) {
+            // Firstly, attempt to get a match against the full classname.
+            if (isset($CFG->scheduled_tasks[$classname])) {
+                return $classname;
+            }
+
+            // Check to see if there is a wildcard matching the classname.
+            foreach (array_keys($CFG->scheduled_tasks) as $key) {
+                if (strpos($key, '*') === false) {
+                    continue;
+                }
+
+                $pattern = '/' . str_replace('\\', '\\\\', str_replace('*', '.*', $key)) . '/';
+
+                if (preg_match($pattern, $classname)) {
+                    return $key;
+                }
             }
         }
 

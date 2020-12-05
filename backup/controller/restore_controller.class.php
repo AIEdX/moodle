@@ -116,7 +116,7 @@ class restore_controller extends base_controller {
         $this->logger = backup_factory::get_logger_chain($this->interactive, $this->execution, $this->restoreid);
 
         // Set execution based on backup mode.
-        if ($mode == backup::MODE_ASYNC) {
+        if ($mode == backup::MODE_ASYNC || $mode == backup::MODE_COPY) {
             $this->execution = backup::EXECUTION_DELAYED;
         } else {
             $this->execution = backup::EXECUTION_INMEDIATE;
@@ -369,6 +369,7 @@ class restore_controller extends base_controller {
             $options = array();
             $options['keep_roles_and_enrolments'] = $this->get_setting_value('keep_roles_and_enrolments');
             $options['keep_groups_and_groupings'] = $this->get_setting_value('keep_groups_and_groupings');
+            $options['userid'] = $this->userid;
             restore_dbops::delete_course_content($this->get_courseid(), $options);
         }
         // If this is not a course restore or single activity restore (e.g. duplicate), inform the plan we are not
@@ -526,6 +527,30 @@ class restore_controller extends base_controller {
         } else {
             $this->set_status(backup::STATUS_NEED_PRECHECK);
         }
+        $this->progress->end_progress();
+    }
+
+    /**
+     * Do the necessary copy preparation actions.
+     * This method should only be called once the backup of a copy operation is completed.
+     *
+     * @throws restore_controller_exception
+     */
+    public function prepare_copy(): void {
+        // Check that we are in the correct mode.
+        if ($this->mode != backup::MODE_COPY) {
+            throw new restore_controller_exception('cannot_prepare_copy_wrong_mode');
+        }
+
+        $this->progress->start_progress('Prepare Copy');
+
+        // If no exceptions were thrown, then we are in the proper format.
+        $this->format = backup::FORMAT_MOODLE;
+
+        // Load plan, apply security and set status based on interactivity.
+        $this->load_plan();
+
+        $this->set_status(backup::STATUS_NEED_PRECHECK);
         $this->progress->end_progress();
     }
 

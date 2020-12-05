@@ -149,6 +149,18 @@ class grade_edit_tree {
                 $actionsmenu->add($icon);
             }
 
+            if ($this->element_duplicatable($element)) {
+                $duplicateparams = array();
+                $duplicateparams['id'] = $COURSE->id;
+                $duplicateparams['action'] = 'duplicate';
+                $duplicateparams['eid'] = $eid;
+                $duplicateparams['sesskey'] = sesskey();
+                $aurl = new moodle_url('index.php', $duplicateparams);
+                $duplicateicon = new pix_icon('t/copy', get_string('duplicate'));
+                $icon = new action_menu_link_secondary($aurl, $duplicateicon, get_string('duplicate'));
+                $actionsmenu->add($icon);
+            }
+
             $aurl = new moodle_url('index.php', array('id' => $COURSE->id, 'action' => 'moveselect', 'eid' => $eid, 'sesskey' => sesskey()));
             $moveaction .= $OUTPUT->action_icon($aurl, new pix_icon('t/move', get_string('move')));
         }
@@ -221,7 +233,6 @@ class grade_edit_tree {
                 if ($this->moving && $this->moving != $child_eid) {
 
                     $strmove     = get_string('move');
-                    $strmovehere = get_string('movehere');
                     $actions = $moveaction = ''; // no action icons when moving
 
                     $aurl = new moodle_url('index.php', array('id' => $COURSE->id, 'action' => 'move', 'eid' => $this->moving, 'moveafter' => $child_eid, 'sesskey' => sesskey()));
@@ -233,8 +244,7 @@ class grade_edit_tree {
                     $cell->colspan = 12;
                     $cell->attributes['class'] = 'movehere level' . ($level + 1) . ' level' . ($level % 2 ? 'even' : 'odd');
 
-                    $icon = new pix_icon('movehere', $strmovehere, null, array('class'=>'movetarget'));
-                    $cell->text = $OUTPUT->action_icon($aurl, $icon);
+                    $cell->text = html_writer::link($aurl, '', array('title' => get_string('movehere'), 'class' => 'movehere'));
 
                     $moveto = new html_table_row(array($cell));
                 }
@@ -461,6 +471,24 @@ class grade_edit_tree {
     }
 
     /**
+     * Given an element of the grade tree, returns whether it is duplicatable or not (only manual grade items are duplicatable)
+     *
+     * @param array $element
+     * @return bool
+     */
+    public function element_duplicatable($element) {
+        if ($element['type'] != 'item') {
+            return false;
+        }
+
+        $gradeitem = $element['object'];
+        if ($gradeitem->itemtype != 'mod') {
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Given the grade tree and an array of element ids (e.g. c15, i42), and expecting the 'moveafter' URL param,
      * moves the selected items to the requested location. Then redirects the user to the given $returnurl
      *
@@ -534,6 +562,141 @@ class grade_edit_tree {
         }
 
         return $deepest_level;
+    }
+
+    /**
+     * Updates the provided gradecategory item with the provided data.
+     *
+     * @param grade_category $gradecategory The category to update.
+     * @param stdClass $data the data to update the category with.
+     * @return void
+     */
+    public static function update_gradecategory(grade_category $gradecategory, stdClass $data) {
+        // If no fullname is entered for a course category, put ? in the DB.
+        if (!isset($data->fullname) || $data->fullname == '') {
+            $data->fullname = '?';
+        }
+
+        if (!isset($data->aggregateonlygraded)) {
+            $data->aggregateonlygraded = 0;
+        }
+        if (!isset($data->aggregateoutcomes)) {
+            $data->aggregateoutcomes = 0;
+        }
+        grade_category::set_properties($gradecategory, $data);
+
+        // CATEGORY.
+        if (empty($gradecategory->id)) {
+            $gradecategory->insert();
+
+        } else {
+            $gradecategory->update();
+        }
+
+        // GRADE ITEM.
+        // Grade item data saved with prefix "grade_item_".
+        $itemdata = new stdClass();
+        foreach ($data as $k => $v) {
+            if (preg_match('/grade_item_(.*)/', $k, $matches)) {
+                $itemdata->{$matches[1]} = $v;
+            }
+        }
+
+        if (!isset($itemdata->aggregationcoef)) {
+            $itemdata->aggregationcoef = 0;
+        }
+
+        if (!isset($itemdata->gradepass) || $itemdata->gradepass == '') {
+            $itemdata->gradepass = 0;
+        }
+
+        if (!isset($itemdata->grademax) || $itemdata->grademax == '') {
+            $itemdata->grademax = 0;
+        }
+
+        if (!isset($itemdata->grademin) || $itemdata->grademin == '') {
+            $itemdata->grademin = 0;
+        }
+
+        $hidden      = empty($itemdata->hidden) ? 0 : $itemdata->hidden;
+        $hiddenuntil = empty($itemdata->hiddenuntil) ? 0 : $itemdata->hiddenuntil;
+        unset($itemdata->hidden);
+        unset($itemdata->hiddenuntil);
+
+        $locked   = empty($itemdata->locked) ? 0 : $itemdata->locked;
+        $locktime = empty($itemdata->locktime) ? 0 : $itemdata->locktime;
+        unset($itemdata->locked);
+        unset($itemdata->locktime);
+
+        $convert = array('grademax', 'grademin', 'gradepass', 'multfactor', 'plusfactor', 'aggregationcoef', 'aggregationcoef2');
+        foreach ($convert as $param) {
+            if (property_exists($itemdata, $param)) {
+                $itemdata->$param = unformat_float($itemdata->$param);
+            }
+        }
+        if (isset($itemdata->aggregationcoef2)) {
+            $itemdata->aggregationcoef2 = $itemdata->aggregationcoef2 / 100.0;
+        }
+
+        // When creating a new category, a number of grade item fields are filled out automatically, and are required.
+        // If the user leaves these fields empty during creation of a category, we let the default values take effect.
+        // Otherwise, we let the user-entered grade item values take effect.
+        $gradeitem = $gradecategory->load_grade_item();
+        $gradeitemcopy = fullclone($gradeitem);
+        grade_item::set_properties($gradeitem, $itemdata);
+
+        if (empty($gradeitem->id)) {
+            $gradeitem->id = $gradeitemcopy->id;
+        }
+        if (empty($gradeitem->grademax) && $gradeitem->grademax != '0') {
+            $gradeitem->grademax = $gradeitemcopy->grademax;
+        }
+        if (empty($gradeitem->grademin) && $gradeitem->grademin != '0') {
+            $gradeitem->grademin = $gradeitemcopy->grademin;
+        }
+        if (empty($gradeitem->gradepass) && $gradeitem->gradepass != '0') {
+            $gradeitem->gradepass = $gradeitemcopy->gradepass;
+        }
+        if (empty($gradeitem->aggregationcoef) && $gradeitem->aggregationcoef != '0') {
+            $gradeitem->aggregationcoef = $gradeitemcopy->aggregationcoef;
+        }
+
+        // Handle null decimals value - must be done before update!
+        if (!property_exists($itemdata, 'decimals') or $itemdata->decimals < 0) {
+            $gradeitem->decimals = null;
+        }
+
+        // Change weightoverride flag. Check if the value is set, because it is not when the checkbox is not ticked.
+        $itemdata->weightoverride = isset($itemdata->weightoverride) ? $itemdata->weightoverride : 0;
+        if ($gradeitem->weightoverride != $itemdata->weightoverride && $gradecategory->aggregation == GRADE_AGGREGATE_SUM) {
+            // If we are using natural weight and the weight has been un-overriden, force parent category to recalculate weights.
+            $gradecategory->force_regrading();
+        }
+        $gradeitem->weightoverride = $itemdata->weightoverride;
+
+        $gradeitem->outcomeid = null;
+
+        if (!empty($data->grade_item_rescalegrades) && $data->grade_item_rescalegrades == 'yes') {
+            $gradeitem->rescale_grades_keep_percentage($gradeitemcopy->grademin, $gradeitemcopy->grademax,
+                $gradeitem->grademin, $gradeitem->grademax, 'gradebook');
+        }
+
+        // Update hiding flag.
+        if ($hiddenuntil) {
+            $gradeitem->set_hidden($hiddenuntil, false);
+        } else {
+            $gradeitem->set_hidden($hidden, false);
+        }
+
+        $gradeitem->set_locktime($locktime); // Locktime first - it might be removed when unlocking.
+        $gradeitem->set_locked($locked, false, true);
+
+        $gradeitem->update(); // We don't need to insert it, it's already created when the category is created.
+
+        // Set parent if needed.
+        if (isset($data->parentcategory)) {
+            $gradecategory->set_parent($data->parentcategory, 'gradebook');
+        }
     }
 }
 
@@ -922,4 +1085,3 @@ class grade_edit_tree_column_select extends grade_edit_tree_column {
         return $togglegroup;
     }
 }
-

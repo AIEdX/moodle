@@ -63,6 +63,8 @@ $string['filter_course'] = 'Courses';
 $string['filter_course_help'] = 'Show the tour on a page that is associated with the selected course.';
 $string['filter_courseformat'] = 'Course format';
 $string['filter_courseformat_help'] = 'Show the tour on a page that is associated with a course using the selected course format.';
+$string['filter_cssselector'] = 'CSS selector';
+$string['filter_cssselector_help'] = 'Only show the tour when the specified CSS selector is found on the page.';
 $string['filter_header'] = 'Tour filters';
 $string['filter_help'] = 'Select the conditions under which the tour will be shown. All of the filters must match for a tour to be shown to a user.';
 $string['filter_date_account_creation'] = 'User account creation date within';
@@ -210,7 +212,7 @@ These actions only affect your view.
 
 You can also choose to display the courses in a list, or with summary information, or the default \'card\' view.';
 $string['tour3_title_displayoptions'] = 'Display options';
-$string['tour3_content_displayoptions'] = 'Courses may be sorted by course name or by last access date.
+$string['tour3_content_displayoptions'] = 'Courses may be sorted by course name, course short name or last access date.
 
 You can also choose to display the courses in a list, with summary information, or the default \'card\' view.';
 

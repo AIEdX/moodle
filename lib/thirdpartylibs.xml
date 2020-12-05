@@ -8,6 +8,13 @@
     <licenseversion>2.1+</licenseversion>
   </library>
   <library>
+    <location>behat/axe</location>
+    <name>axe-core</name>
+    <license>MPL</license>
+    <version>3.5.5</version>
+    <licenseversion>2.0</licenseversion>
+  </library>
+  <library>
     <location>bennu</location>
     <name>Bennu</name>
     <license>LGPL</license>
@@ -46,7 +53,7 @@
     <location>jabber</location>
     <name>XMPPHP</name>
     <license>GPL</license>
-    <version>0.1rc2-r77</version>
+    <version>2.2</version>
     <licenseversion>2.0+</licenseversion>
   </library>
   <library>
@@ -299,7 +306,7 @@
     <location>php-jwt</location>
     <name>A simple library to encode and decode JSON Web Tokens (JWT) in PHP, conforming to RFC 7519</name>
     <license>BSD</license>
-    <version>5.0.0</version>
+    <version>5.2.0</version>
     <licenseversion>3-Clause</licenseversion>
   </library>
   <library>
@@ -309,7 +316,7 @@
     <version>7.7.0</version>
   </library>
   <library>
-    <location>mdn-polyfills</location>
+    <location>polyfills</location>
     <name>mdn-polyfill</name>
     <license>MIT</license>
     <version>5.19.0</version>
@@ -321,9 +328,33 @@
     <version>4.1.0</version>
   </library>
   <library>
-    <location>h5p</location>
-    <name>h5p-php-library</name>
-    <license>GPL-3.0</license>
-    <version>1.24</version>
+    <location>polyfills</location>
+    <name>url-polyfill</name>
+    <license>MIT</license>
+    <version>1.1.8</version>
+  </library>
+  <library>
+    <location>plist</location>
+    <name>plist</name>
+    <license>MIT</license>
+    <version>2.0.1</version>
+  </library>
+  <library>
+    <location>zipstream</location>
+    <name>ZipStream-PHP</name>
+    <license>MIT</license>
+    <version>2.1.0</version>
+  </library>
+  <library>
+    <location>php-enum</location>
+    <name>php-enum</name>
+    <license>MIT</license>
+    <version>1.7.6</version>
+  </library>
+  <library>
+    <location>http-message</location>
+    <name>http-message</name>
+    <license>MIT</license>
+    <version>1.0.1</version>
   </library>
 </libraries>
